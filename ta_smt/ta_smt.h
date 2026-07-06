@@ -110,12 +110,18 @@ extern te_errno ta_smt_z3_solve(const char *smtlib2, te_bool model,
                                 te_string *model_out, te_string *core_out,
                                 te_string *version, te_string *reason);
 
-/** cvc5 backend (ta_smt_cvc5.cpp, cvc5 C++ API). */
-extern te_errno ta_smt_cvc5_solve(const char *smtlib2, te_bool model,
-                                  te_bool unsat_core, int timeout_ms,
-                                  unsigned int random_seed, int *status,
-                                  te_string *model_out, te_string *core_out,
-                                  te_string *version, te_string *reason);
+/**
+ * cvc5 backend (ta_smt_cvc5.cpp, cvc5 C++ API). Plain-C seam: it
+ * includes no TE headers (they are not C++-safe), so it takes @c int
+ * flags and @c char** out-parameters (heap strings, caller frees) and
+ * returns @c 0 ok / @c 1 parse error / @c 2 engine failure. The
+ * dispatcher in ta_smt.c adapts it to the te_string/te_errno world.
+ */
+extern int ta_smt_cvc5_solve_raw(const char *smtlib2, int model,
+                                 int unsat_core, int timeout_ms,
+                                 unsigned int random_seed, int *status,
+                                 char **model_out, char **core_out,
+                                 char **version, char **reason);
 
 #ifdef __cplusplus
 } /* extern "C" */

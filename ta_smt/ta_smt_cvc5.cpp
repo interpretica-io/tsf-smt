@@ -6,46 +6,65 @@
  * Drives cvc5 through its C++ API (@c cvc5/cvc5.h and the parser in
  * @c cvc5/cvc5_parser.h) - the library is linked and called in this
  * process, nothing is spawned. The only C++ translation unit in
- * ta_smt; its one entry point, ta_smt_cvc5_solve(), is @c extern @c "C"
- * so the C dispatcher in ta_smt.c calls it directly.
+ * ta_smt.
  *
- * cvc5's C++ API has moved between releases (the TermManager arrived in
- * 1.1, the parser namespace settled around 1.2); this is written to
- * the 1.2+ API. A build against an older cvc5 is the place to expect an
- * adjustment - see the agent host requirements in the README.
+ * It deliberately includes NO Test Environment headers: TE's C headers
+ * (te_string.h, te_vector.h) are not C++-safe (they use @c new as an
+ * identifier and rely on implicit void* casts), so this unit speaks a
+ * plain-C seam - @c char** out-parameters it fills with @c strdup'd
+ * strings and an @c int return - and the C dispatcher in ta_smt.c
+ * converts to/from the TE types. The entry point is @c extern @c "C".
+ *
+ * cvc5's C++ API moved between releases (the TermManager arrived in
+ * 1.1, the parser namespace around 1.2); this is written to the 1.1+
+ * API as packaged on Debian/Ubuntu (cvc5 1.1.x).
  */
 
+#include <cstdlib>
+#include <cstring>
 #include <sstream>
 #include <string>
 
 #include <cvc5/cvc5.h>
 #include <cvc5/cvc5_parser.h>
 
-extern "C" {
-#include "te_defs.h"
-#include "te_errno.h"
-#include "te_string.h"
+/* Status values match ta_smt.h: 0 sat, 1 unsat, 2 unknown. */
+#define CVC5_SAT     0
+#define CVC5_UNSAT   1
+#define CVC5_UNKNOWN 2
 
-#include "ta_smt.h"
+/* Return values of the raw seam: 0 ok, 1 parse error, 2 engine failure. */
+#define CVC5_OK      0
+#define CVC5_EPARSE  1
+#define CVC5_EFAIL   2
+
+/** strdup() a std::string, or NULL out-param untouched. */
+static void
+set_out(char **out, const std::string &s)
+{
+    if (out != NULL)
+        *out = strdup(s.c_str());
 }
 
-/* See description in ta_smt.h */
-extern "C" te_errno
-ta_smt_cvc5_solve(const char *smtlib2, te_bool model, te_bool unsat_core,
-                  int timeout_ms, unsigned int random_seed, int *status,
-                  te_string *model_out, te_string *core_out,
-                  te_string *version, te_string *reason)
+/**
+ * Decide one SMT-LIB 2 problem with cvc5. Plain-C seam (see file
+ * header); the C dispatcher wraps it. Out strings are heap-allocated
+ * with strdup() and owned by the caller.
+ */
+extern "C" int
+ta_smt_cvc5_solve_raw(const char *smtlib2, int model, int unsat_core,
+                      int timeout_ms, unsigned int random_seed, int *status,
+                      char **model_out, char **core_out,
+                      char **version, char **reason)
 {
     try
     {
         cvc5::TermManager tm;
         cvc5::Solver solver(tm);
+        std::string model_s;
+        std::string core_s;
 
-        if (version != NULL)
-        {
-            te_string_append(version, "%s",
-                cvc5::Configuration::getVersionString().c_str());
-        }
+        set_out(version, cvc5::Configuration::getVersionString());
 
         /* Options go in before the problem is parsed; produce-models
          * and produce-unsat-cores must precede the first assertion. */
@@ -79,8 +98,8 @@ ta_smt_cvc5_solve(const char *smtlib2, te_bool model, te_bool unsat_core,
 
         if (result.isSat())
         {
-            *status = TA_SMT_SAT;
-            if (model && model_out != NULL)
+            *status = CVC5_SAT;
+            if (model)
             {
                 for (const cvc5::Term &term : sm.getDeclaredTerms())
                 {
@@ -88,10 +107,9 @@ ta_smt_cvc5_solve(const char *smtlib2, te_bool model, te_bool unsat_core,
                     {
                         std::string name = term.hasSymbol() ?
                                            term.getSymbol() : term.toString();
-                        std::string value = solver.getValue(term).toString();
 
-                        te_string_append(model_out, "%s\t%s\n",
-                                         name.c_str(), value.c_str());
+                        model_s += name + "\t" +
+                                   solver.getValue(term).toString() + "\n";
                     }
                     catch (const std::exception &)
                     {
@@ -99,46 +117,40 @@ ta_smt_cvc5_solve(const char *smtlib2, te_bool model, te_bool unsat_core,
                          * uninterpreted function) is skipped. */
                     }
                 }
+                set_out(model_out, model_s);
             }
         }
         else if (result.isUnsat())
         {
-            *status = TA_SMT_UNSAT;
-            if (unsat_core && core_out != NULL)
+            *status = CVC5_UNSAT;
+            if (unsat_core)
             {
                 for (const cvc5::Term &term : solver.getUnsatCore())
-                    te_string_append(core_out, "%s\n", term.toString().c_str());
+                    core_s += term.toString() + "\n";
+                set_out(core_out, core_s);
             }
         }
         else
         {
-            *status = TA_SMT_UNKNOWN;
-            if (reason != NULL)
-            {
-                te_string_append(reason, "%s",
-                    result.getUnknownExplanation() == cvc5::UnknownExplanation::UNKNOWN_REASON ?
-                    "unknown" : result.toString().c_str());
-            }
+            *status = CVC5_UNKNOWN;
+            set_out(reason, result.toString());
         }
 
-        return 0;
+        return CVC5_OK;
     }
     catch (const cvc5::parser::ParserException &e)
     {
-        if (reason != NULL)
-            te_string_append(reason, "%s", e.what());
-        return TE_RC(TE_TA_UNIX, TE_ESHCMD);
+        set_out(reason, e.what());
+        return CVC5_EPARSE;
     }
     catch (const cvc5::CVC5ApiException &e)
     {
-        if (reason != NULL)
-            te_string_append(reason, "%s", e.what());
-        return TE_RC(TE_TA_UNIX, TE_ESHCMD);
+        set_out(reason, e.what());
+        return CVC5_EPARSE;
     }
     catch (const std::exception &e)
     {
-        if (reason != NULL)
-            te_string_append(reason, "%s", e.what());
-        return TE_RC(TE_TA_UNIX, TE_EFAIL);
+        set_out(reason, e.what());
+        return CVC5_EFAIL;
     }
 }

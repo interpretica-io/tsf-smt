@@ -39,9 +39,47 @@ ta_smt_solve(int engine, const char *smtlib2, te_bool model,
                                    random_seed, status, model_out, core_out,
                                    version, reason);
         case TA_SMT_ENGINE_CVC5:
-            return ta_smt_cvc5_solve(smtlib2, model, unsat_core, timeout_ms,
-                                     random_seed, status, model_out,
-                                     core_out, version, reason);
+        {
+            /*
+             * The cvc5 backend is C++ and includes no TE headers, so it
+             * speaks a plain-C seam: it fills char* out-strings (heap)
+             * and returns 0/1/2. Adapt that to te_string/te_errno here.
+             */
+            char *m = NULL;
+            char *c = NULL;
+            char *v = NULL;
+            char *r = NULL;
+            int crc = ta_smt_cvc5_solve_raw(smtlib2, model, unsat_core,
+                                            timeout_ms, random_seed, status,
+                                            &m, &c, &v, &r);
+
+            if (m != NULL)
+            {
+                te_string_append(model_out, "%s", m);
+                free(m);
+            }
+            if (c != NULL)
+            {
+                te_string_append(core_out, "%s", c);
+                free(c);
+            }
+            if (v != NULL)
+            {
+                te_string_append(version, "%s", v);
+                free(v);
+            }
+            if (r != NULL)
+            {
+                te_string_append(reason, "%s", r);
+                free(r);
+            }
+
+            if (crc == 1)
+                return TE_RC(TE_TA_UNIX, TE_ESHCMD);
+            if (crc != 0)
+                return TE_RC(TE_TA_UNIX, TE_EFAIL);
+            return 0;
+        }
         default:
             ERROR("Unknown SMT engine %d", engine);
             return TE_RC(TE_TA_UNIX, TE_EINVAL);
