@@ -211,15 +211,6 @@ ta_smt_z3_solve(const char *smtlib2, te_bool model, te_bool unsat_core,
     z3_version(version);
 
     config = Z3_mk_config();
-    /*
-     * unsat_core and model are context options that must be set on the
-     * config before the context exists: the SMT-LIB front-end's
-     * (set-option :produce-*) is rejected "after initialization".
-     */
-    if (unsat_core)
-        Z3_set_param_value(config, "unsat_core", "true");
-    if (model)
-        Z3_set_param_value(config, "model", "true");
     ctx = Z3_mk_context(config);
     Z3_del_config(config);
     Z3_set_error_handler(ctx, z3_quiet_error);
@@ -240,6 +231,19 @@ ta_smt_z3_solve(const char *smtlib2, te_bool model, te_bool unsat_core,
                            Z3_mk_string_symbol(ctx, "random_seed"),
                            random_seed);
     }
+    /*
+     * Enable unsat cores (and models) on the solver itself, before the
+     * assertions are parsed: this is what makes Z3_solver_get_unsat_core
+     * return the named assertions. A (set-option ...) in the parsed text
+     * is rejected after the context exists, and a config value does not
+     * reach the from_string front-end.
+     */
+    if (unsat_core)
+        Z3_params_set_bool(ctx, params,
+                           Z3_mk_string_symbol(ctx, "unsat_core"), true);
+    if (model)
+        Z3_params_set_bool(ctx, params,
+                           Z3_mk_string_symbol(ctx, "model"), true);
     Z3_solver_set_params(ctx, solver, params);
 
     te_string_append(&problem, "%s", smtlib2 != NULL ? smtlib2 : "");
