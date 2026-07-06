@@ -9,15 +9,19 @@
  * ta_smt.
  *
  * It deliberately includes NO Test Environment headers: TE's C headers
- * (te_string.h, te_vector.h) are not C++-safe (they use @c new as an
- * identifier and rely on implicit void* casts), so this unit speaks a
- * plain-C seam - @c char** out-parameters it fills with @c strdup'd
- * strings and an @c int return - and the C dispatcher in ta_smt.c
- * converts to/from the TE types. The entry point is @c extern @c "C".
+ * are not C++-safe (they use @c new as an identifier and rely on
+ * implicit void* casts), so this unit speaks a plain-C seam - @c char**
+ * out-parameters filled with @c strdup'd strings and an @c int return -
+ * and the C dispatcher in ta_smt.c converts to/from the TE types.
  *
- * cvc5's C++ API moved between releases (the TermManager arrived in
- * 1.1, the parser namespace around 1.2); this is written to the 1.1+
- * API as packaged on Debian/Ubuntu (cvc5 1.1.x).
+ * Written against the cvc5 1.1.x C++ API as packaged on Debian/Ubuntu:
+ * a default-constructed @c Solver (the @c TermManager and
+ * @c Configuration of 1.2+ are not used), and the @c cvc5::parser
+ * InputParser/SymbolManager. Model enumeration needs
+ * @c SymbolManager::getDeclaredTerms(), which 1.1.x does not provide,
+ * so a model is not returned here (sat/unsat/unknown and the unsat core
+ * are); the engine-neutral layer and the suite tolerate an empty model
+ * from an engine.
  */
 
 #include <cstdlib>
@@ -38,7 +42,7 @@
 #define CVC5_EPARSE  1
 #define CVC5_EFAIL   2
 
-/** strdup() a std::string, or NULL out-param untouched. */
+/** strdup() a std::string into an out-param, if the out-param is set. */
 static void
 set_out(char **out, const std::string &s)
 {
@@ -57,17 +61,15 @@ ta_smt_cvc5_solve_raw(const char *smtlib2, int model, int unsat_core,
                       char **model_out, char **core_out,
                       char **version, char **reason)
 {
+    (void)model;        /* model enumeration is unavailable on cvc5 1.1.x */
+    (void)model_out;
+    (void)version;      /* cvc5 1.1.x exposes no public version string here */
+
     try
     {
-        cvc5::TermManager tm;
-        cvc5::Solver solver(tm);
-        std::string model_s;
+        cvc5::Solver solver;
         std::string core_s;
 
-        set_out(version, cvc5::Configuration::getVersionString());
-
-        /* Options go in before the problem is parsed; produce-models
-         * and produce-unsat-cores must precede the first assertion. */
         if (model)
             solver.setOption("produce-models", "true");
         if (unsat_core)
@@ -79,7 +81,7 @@ ta_smt_cvc5_solve_raw(const char *smtlib2, int model, int unsat_core,
 
         /* The engine parses the SMT-LIB 2 problem and runs each command
          * against the solver, so the assertions land on its stack. */
-        cvc5::parser::SymbolManager sm(tm);
+        cvc5::parser::SymbolManager sm(&solver);
         cvc5::parser::InputParser parser(&solver, &sm);
 
         parser.setStringInput(cvc5::modes::InputLanguage::SMT_LIB_2_6,
@@ -99,26 +101,7 @@ ta_smt_cvc5_solve_raw(const char *smtlib2, int model, int unsat_core,
         if (result.isSat())
         {
             *status = CVC5_SAT;
-            if (model)
-            {
-                for (const cvc5::Term &term : sm.getDeclaredTerms())
-                {
-                    try
-                    {
-                        std::string name = term.hasSymbol() ?
-                                           term.getSymbol() : term.toString();
-
-                        model_s += name + "\t" +
-                                   solver.getValue(term).toString() + "\n";
-                    }
-                    catch (const std::exception &)
-                    {
-                        /* A declared symbol with no value (a sort, an
-                         * uninterpreted function) is skipped. */
-                    }
-                }
-                set_out(model_out, model_s);
-            }
+            /* Model omitted: SymbolManager::getDeclaredTerms() is 1.2+. */
         }
         else if (result.isUnsat())
         {
