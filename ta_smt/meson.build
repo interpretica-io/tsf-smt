@@ -26,6 +26,7 @@ te_libs += [
 # Z3 ships no pkg-config on many distributions, so fall back to finding
 # the library and its header directly. cvc5 ships cvc5.pc from 1.1.
 cc = meson.get_compiler('c')
+add_languages('cpp', required: true)
 cxx = meson.get_compiler('cpp')
 
 z3_dep = dependency('z3', required: false)

@@ -66,7 +66,7 @@ rpc_smt_solve(rcf_rpc_server *rpcs, int engine, const char *smtlib2,
      * the caller reads whichever ones it asked for. */
     take_string(model, out.model);
     take_string(unsat_core, out.unsat_core);
-    take_string(version, out.version);
+    take_string(version, out.engine_version);
     take_string(reason, out.reason);
 
     RETVAL_TE_ERRNO(smt_solve, out.retval);
@@ -88,7 +88,7 @@ rpc_smt_available(rcf_rpc_server *rpcs, int engine, te_string *version)
     TAPI_RPC_LOG(rpcs, smt_available, "engine=%d", "%r", engine, out.retval);
 
     if (out.retval == 0)
-        take_string(version, out.version);
+        take_string(version, out.engine_version);
 
     RETVAL_TE_ERRNO(smt_available, out.retval);
 }

@@ -46,7 +46,7 @@ struct tarpc_smt_solve_out {
     tarpc_int       status;
     string          model<>;
     string          unsat_core<>;
-    string          version<>;
+    string          engine_version<>;
     string          reason<>;
 };
 
@@ -64,7 +64,7 @@ struct tarpc_smt_available_out {
     struct tarpc_out_arg common;
 
     tarpc_int       retval;
-    string          version<>;
+    string          engine_version<>;
 };
 
 program smt

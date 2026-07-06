@@ -61,7 +61,7 @@ TARPC_FUNC_STATIC(smt_solve, {},
     MAKE_CALL(out->retval = func(in->engine, in->smtlib2, in->produce_model,
                                  in->produce_unsat_core, in->timeout_ms,
                                  in->random_seed, &status, &out->model,
-                                 &out->unsat_core, &out->version,
+                                 &out->unsat_core, &out->engine_version,
                                  &out->reason));
     out->status = status;
     out->common.errno_changed = false;
@@ -80,6 +80,6 @@ smt_available(int engine, char **version)
 
 TARPC_FUNC_STATIC(smt_available, {},
 {
-    MAKE_CALL(out->retval = func(in->engine, &out->version));
+    MAKE_CALL(out->retval = func(in->engine, &out->engine_version));
     out->common.errno_changed = false;
 })
